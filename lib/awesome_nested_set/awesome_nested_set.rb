@@ -94,7 +94,11 @@ module CollectiveIdea #:nodoc:
         [left_column_name, right_column_name, depth_column_name].each do |column|
           module_eval <<-"end_eval", __FILE__, __LINE__
             def #{column}=(x)
-              raise ActiveRecord::ActiveRecordError, "Unauthorized assignment to #{column}: it's an internal field handled by acts_as_nested_set code, use move_to_* methods instead."
+              if self.class.in_batch_update
+                super
+              else
+                raise ActiveRecord::ActiveRecordError, "Unauthorized assignment to #{column}: it's an internal field handled by acts_as_nested_set code, use move_to_* methods instead."
+              end
             end
           end_eval
         end
@@ -110,6 +114,16 @@ module CollectiveIdea #:nodoc:
         end
 
         module ClassMethods
+          
+          # This variable is a module variable, so that it is shared amongst the STI chain
+          def in_batch_update
+            @@in_batch_update ||= false
+          end
+          
+          def in_batch_update= val
+            @@in_batch_update = val
+          end
+          
           # Returns the first root
           def root
             roots.first
@@ -282,6 +296,7 @@ module CollectiveIdea #:nodoc:
               objects
             end
           end
+           
         end
 
         # Any instance method that returns a collection makes use of Rails 2.1's named_scope (which is bundled for Rails 2.0), so it can be treated as a finder.
@@ -487,6 +502,25 @@ module CollectiveIdea #:nodoc:
             "#{'*'*(node.level+1)} #{node.id} #{node.to_s} (#{node.parent_id}, #{node.left}, #{node.right})"
           end.join("\n")
         end
+        
+        # Construct the (in-memory) nested set for this node and it descendants in batch, then save.
+        # Attention: won't save the depth column for now (raises if one is defined)
+        def batch_save_nested_set
+          raise 'Depth not supported when batch saving a nested set' if nested_set_scope.column_names.map(&:to_s).include?(depth_column_name.to_s)
+          self.class.in_batch_update = true
+          set_in_memory_left_and_right
+          save # should save descendants, too
+          self.class.in_batch_update = false
+        end
+        
+        # Recursively sets the left and right properties (in-memory) for this node and its descendants.
+        def set_in_memory_left_and_right(count = 1)
+          self.lft = count
+          count += 1
+          children.each { |c| count = c.set_in_memory_left_and_right(count) + 1 }
+          self.rgt = count
+        end
+        
 
       protected
         def compute_level
@@ -515,11 +549,17 @@ module CollectiveIdea #:nodoc:
         end
 
         def store_new_parent
+          
+          return if self.class.in_batch_update
+          
           @move_to_new_parent_id = send("#{parent_column_name}_changed?") ? parent_id : false
           true # force callback to return true
         end
 
         def move_to_new_parent
+          
+          return if self.class.in_batch_update
+          
           if @move_to_new_parent_id.nil?
             move_to_root
           elsif @move_to_new_parent_id
@@ -528,6 +568,9 @@ module CollectiveIdea #:nodoc:
         end
 
         def set_depth!
+          
+          return if self.class.in_batch_update
+          
           if nested_set_scope.column_names.map(&:to_s).include?(depth_column_name.to_s)
             in_tenacious_transaction do
               reload
@@ -540,6 +583,9 @@ module CollectiveIdea #:nodoc:
 
         # on creation, set automatically lft and rgt to the end of the tree
         def set_default_left_and_right
+          
+          return if self.class.in_batch_update
+          
           highest_right_row = nested_set_scope(:order => "#{quoted_right_column_full_name} desc").limit(1).lock(true).first
           maxright = highest_right_row ? (highest_right_row[right_column_name] || 0) : 0
           # adds the new node to the right of all existing nodes
