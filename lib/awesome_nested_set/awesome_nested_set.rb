@@ -556,6 +556,15 @@ module CollectiveIdea #:nodoc:
           where(options[:conditions]).order(options.delete(:order))
         end
 
+        def order_column
+          acts_as_nested_set_options[:order_column] || acts_as_nested_set_options[:left_column]
+        end
+
+        def quoted_order_column_name
+          ActiveRecord::Base.connection.quote_column_name(order_column)
+        end
+
+
         def store_new_parent
           
           return if self.class.in_batch_update
