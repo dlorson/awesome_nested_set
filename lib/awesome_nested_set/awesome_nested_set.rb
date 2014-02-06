@@ -80,7 +80,7 @@ module CollectiveIdea #:nodoc:
 
         # Add callbacks, if they were supplied.. otherwise, we don't want them.
         [:before_add, :after_add, :before_remove, :after_remove].each do |ar_callback|
-          has_many_children_options.update(f
+          has_many_children_options.update(
             ar_callback => acts_as_nested_set_options[ar_callback]
           ) if acts_as_nested_set_options[ar_callback]
         end

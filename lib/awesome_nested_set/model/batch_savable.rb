@@ -26,7 +26,7 @@ module CollectiveIdea #:nodoc:
               maxright = highest_right_row ? (highest_right_row[right_column_name] || 0) : 0
               count = maxright + 1
             end
-          
+                      
             self.lft = count
             count += 1
             children.each { |c| count = c.set_in_memory_left_and_right(count) + 1 }
