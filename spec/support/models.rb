@@ -82,15 +82,26 @@ end
 class Order < ActiveRecord::Base
   acts_as_nested_set
 
-  default_scope order(:name)
+  default_scope -> { order(:name) }
 end
 
 class Position < ActiveRecord::Base
   acts_as_nested_set
 
-  default_scope order(:position)
+  default_scope -> { order(:position) }
 end
 
 class NoDepth < ActiveRecord::Base
   acts_as_nested_set
+end
+
+class Superclass < ActiveRecord::Base
+  acts_as_nested_set
+  self.table_name = 'single_table_inheritance'
+end
+
+class Subclass1 < Superclass
+end
+
+class Subclass2 < Superclass
 end

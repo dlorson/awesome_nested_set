@@ -81,6 +81,12 @@ describe "AwesomeNestedSet" do
     Default.new.quoted_depth_column_name.should == quoted
   end
 
+  it "quoted_order_column_name" do
+    quoted = Default.connection.quote_column_name('lft')
+    Default.quoted_order_column_name.should == quoted
+    Default.new.quoted_order_column_name.should == quoted
+  end
+
   it "left_column_protected_from_assignment" do
     lambda {
       Category.new.lft = 1
@@ -136,6 +142,7 @@ describe "AwesomeNestedSet" do
   end
 
   it "leaves_class_method" do
+    Category.where("#{Category.right_column_name} - #{Category.left_column_name} = 1").to_a.should == Category.leaves.to_a
     Category.leaves.count.should == 4
     Category.leaves.should include(categories(:child_1))
     Category.leaves.should include(categories(:child_2_1))
@@ -162,7 +169,7 @@ describe "AwesomeNestedSet" do
   it "self_and_ancestors" do
     child = categories(:child_2_1)
     self_and_ancestors = [categories(:top_level), categories(:child_2), child]
-    self_and_ancestors.should == child.self_and_ancestors
+    child.self_and_ancestors.should == self_and_ancestors
   end
 
   it "ancestors" do
@@ -437,8 +444,8 @@ describe "AwesomeNestedSet" do
     categories(:child_2).parent.should be_nil
     categories(:child_2).level.should == 0
     categories(:child_2_1).level.should == 1
-    categories(:child_2).left.should == 7
-    categories(:child_2).right.should == 10
+    categories(:child_2).left.should == 9
+    categories(:child_2).right.should == 12
     Category.valid?.should be_true
   end
 
@@ -932,16 +939,6 @@ describe "AwesomeNestedSet" do
     check_structure(Category.root.self_and_descendants, levels)
   end
 
-  it "should not error on a model with attr_accessible" do
-    model = Class.new(ActiveRecord::Base)
-    model.table_name = 'categories'
-    model.attr_accessible :name
-    lambda {
-      model.acts_as_nested_set
-      model.new(:name => 'foo')
-    }.should_not raise_exception
-  end
-
   describe "before_move_callback" do
     it "should fire the callback" do
       categories(:child_2).should_receive(:custom_before_move)
@@ -1087,6 +1084,68 @@ describe "AwesomeNestedSet" do
     it "should sort by custom sort column" do
       OrderedCategory.acts_as_nested_set_options[:order_column].should == 'name'
       OrderedCategory.order_column.should == 'name'
+    end
+  end
+
+  describe 'associate_parents' do
+    it 'assigns parent' do
+      root = Category.root
+      categories = root.self_and_descendants
+      categories = Category.associate_parents categories
+      expect(categories[1].parent).to be categories.first
+    end
+
+    it 'adds children on inverse of association' do
+      root = Category.root
+      categories = root.self_and_descendants
+      categories = Category.associate_parents categories
+      expect(categories[0].children.first).to be categories[1]
+    end
+  end
+
+  describe 'table inheritance' do
+    it 'allows creation of a subclass pointing to a superclass' do
+      subclass1 = Subclass1.create(name: "Subclass1")
+      Subclass2.create(name: "Subclass2", parent_id: subclass1.id)
+    end
+  end
+
+  describe 'option dependent' do
+    it 'destroy should destroy children and node' do
+      Category.acts_as_nested_set_options[:dependent] = :destroy
+      root = Category.root
+      root.destroy!
+      expect(Category.where(id: root.id)).to be_empty
+      expect(Category.where(parent_id: root.id)).to be_empty
+    end
+
+    it 'delete should delete children and node' do
+      Category.acts_as_nested_set_options[:dependent] = :delete
+      root = Category.root
+      root.destroy!
+      expect(Category.where(id: root.id)).to be_empty
+      expect(Category.where(parent_id: root.id)).to be_empty
+    end
+
+    it 'restrict_with_exception should raise exception' do
+      Category.acts_as_nested_set_options[:dependent] = :restrict_with_exception
+      root = Category.root
+      expect { root.destroy! }.to raise_error  ActiveRecord::DeleteRestrictionError, 'Cannot delete record because of dependent children'
+    end
+
+    describe 'restrict_with_error' do
+      it 'adds the error to the parent' do
+        Category.acts_as_nested_set_options[:dependent] = :restrict_with_error
+        root = Category.root
+        root.destroy
+        assert_equal ["Cannot delete record because dependent children exist"], root.errors[:base]
+      end
+
+      it 'deletes the leaf' do
+        Category.acts_as_nested_set_options[:dependent] = :restrict_with_error
+        leaf = Category.last
+        assert_equal leaf, leaf.destroy
+      end
     end
   end
 end
